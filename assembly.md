@@ -1014,7 +1014,6 @@ $eflags: [zero CARRY PARITY adjust SIGN trap INTERRUPT direction overflow resume
 $cs: 0x0023 $ss: 0x002b $ds: 0x002b $es: 0x002b $fs: 0x0000 $gs: 0x0063 
 gef➤  
 ```
-
 &emsp;&emsp;接着输入n或者s可以单步进行调试,他们的区别是:
 
 - n: 假如有函数调用的话,会直接执行完毕该函数,然后继续单步执行
